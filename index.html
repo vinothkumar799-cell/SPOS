@@ -3355,15 +3355,20 @@
       if(scanBarcodeBtn) {
           scanBarcodeBtn.addEventListener('click', () => {
               scannerModal.classList.add('open');
-              startScanner();
+              // Add a small delay to ensure the Modal is visible before camera starts
+              setTimeout(() => {
+                  startScanner();
+              }, 300);
           });
       }
       
       function closeScannerModal() {
           if(html5QrcodeScanner) {
-              html5QrcodeScanner.clear().catch(error => {
-                  console.error("Failed to clear html5QrcodeScanner. ", error);
-              });
+              try {
+                html5QrcodeScanner.clear().catch(error => {
+                    console.error("Failed to clear html5QrcodeScanner. ", error);
+                });
+              } catch(e) { console.log(e); }
           }
           scannerModal.classList.remove('open');
       }
@@ -3372,9 +3377,20 @@
       if(scannerModal) scannerModal.querySelector('.modal-backdrop').addEventListener('click', closeScannerModal);
       
       function startScanner() {
+          // Destroy previous instance if exists to prevent errors
+          if(html5QrcodeScanner) {
+            try { html5QrcodeScanner.clear(); } catch(e){}
+          }
+
           html5QrcodeScanner = new Html5QrcodeScanner(
               "scanner-preview",
-              { fps: 10, qrbox: {width: 250, height: 250} },
+              { 
+                  fps: 10, 
+                  qrbox: {width: 250, height: 250},
+                  aspectRatio: 1.0, // Crucial for Mobile Portrait mode
+                  rememberLastUsedCamera: true,
+                  supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA] 
+              },
               /* verbose= */ false);
           
           html5QrcodeScanner.render(onScanSuccess, onScanFailure);
@@ -3382,8 +3398,6 @@
       
       function onScanSuccess(decodedText, decodedResult) {
           // decodedText contains the Product ID from the QR
-          console.log(`Code matched = ${decodedText}`, decodedResult);
-          
           // Stop scanning
           if(html5QrcodeScanner) {
               html5QrcodeScanner.clear();
@@ -3393,6 +3407,7 @@
           
           // Find Product
           const inv = getInventory();
+          // Check both ID and direct string match
           const item = inv.find(i => String(i.id) === String(decodedText));
           
           if(item) {
@@ -3407,7 +3422,7 @@
       }
       
       function onScanFailure(error) {
-          // handle scan failure, usually better to ignore and keep scanning.
+          // Keep this empty to avoid console spam while scanning
       }
 
 
