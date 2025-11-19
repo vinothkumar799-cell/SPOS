@@ -1097,9 +1097,15 @@
                   Import
                   <input id="import-file-input" type="file" accept="application/json" style="display:none">
                 </label>
+
+                <div style="display:inline-flex; gap:4px; margin-left:8px; border-left:1px solid #334155; padding-left:8px;">
+                  <button id="inv-export-csv-btn" class="btn btn-small" style="background:#0f766e; color:#ccfbf1; border:1px solid #115e59;">Exp CSV</button>
+                  <button id="inv-print-btn" class="btn btn-small" style="background:#0f766e; color:#ccfbf1; border:1px solid #115e59;">Print/PDF</button>
+                </div>
               </div>
             </header>
-
+                
+              
             <section class="card" style="margin-bottom:14px;">
               <h2 style="margin-top:0;font-size:16px;">Add / Edit Product</h2>
               <form id="inventory-form" class="inventory-form" autocomplete="off">
@@ -1473,6 +1479,7 @@
                   <button class="tab" data-tab="profit-view" type="button">Profit Summary</button>
                   <button class="tab" data-tab="gst-view" type="button">GST Summary</button>
                   <button class="tab" data-tab="purchase-view" type="button">Purchase Report</button>
+                  <button class="tab" data-tab="stock-history-view" type="button">Stock History</button>
                 </div>
                 <div id="reports-summary" class="text-xs muted"></div>
               </div>
@@ -1487,8 +1494,8 @@
                         <th>Customer</th>
                         <th>Items</th>
                         <th>Profit (Est.)</th>
-                        <th>Total</th>
-                        <th>Actions</th>
+                        <th>Total</th>                        
+                        <th style="text-align:right;">Actions</th>
                       </tr>
                     </thead>
                     <tbody id="reports-list"></tbody>
@@ -1554,6 +1561,28 @@
                 </div>
               </section>
 
+              
+              <section id="stock-history-view" class="report-panel card" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <h3 style="margin:0;font-size:14px;">Inventory Movement History</h3>
+                    <button id="export-history-btn" class="btn btn-small btn-secondary">Export CSV</button>
+                </div>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Item</th>
+                        <th>Type</th>
+                        <th>Change</th>
+                        <th>Reference / Note</th>
+                      </tr>
+                    </thead>
+                    <tbody id="stock-history-list"></tbody>
+                  </table>
+                </div>
+              </section>
+
             </section>
           </section>
         </div>
@@ -1610,6 +1639,53 @@
         <button id="whatsapp-cancel" class="btn btn-ghost" type="button">Cancel</button>
         <button id="whatsapp-send" class="btn btn-primary" type="button">Send</button>
       </footer>
+    </div>
+  </div>
+
+  <div id="manage-bill-modal" class="modal" aria-hidden="true" role="dialog">
+    <div class="modal-backdrop" data-close="true"></div>
+    <div class="modal-panel" role="document" style="max-width: 600px;">
+      <header class="modal-header">
+        <h3 id="manage-bill-title">Manage Bill</h3>
+        <button class="modal-close" id="manage-bill-close-btn">&times;</button>
+      </header>
+      <div class="modal-body">
+        <div class="card-subtle" style="margin-bottom:12px; display:flex; justify-content:space-between; font-size:13px;">
+          <div>Customer: <strong id="mb-customer"></strong></div>
+          <div>Date: <span id="mb-date"></span></div>
+        </div>
+
+        <h4 style="margin:0 0 8px 0; font-size:14px;">Items Purchased</h4>
+        <div class="table-wrapper" style="max-height: 250px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Refund Value</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="mb-items-list"></tbody>
+          </table>
+        </div>
+        
+        <div class="summary-box" style="margin-top:12px;">
+          <div class="summary-line big">
+              <span>New Bill Total</span>
+              <span id="mb-total">₹0.00</span>
+          </div>
+        </div>
+        
+        <div class="text-xs muted" style="margin-top:10px; background:rgba(255,255,255,0.05); padding:8px; border-radius:6px;">
+          <strong>How to Exchange:</strong>
+          <ol style="margin:4px 0 0 14px; padding:0;">
+            <li>Click "Return" on the unwanted item above.</li>
+            <li>Refund the calculated amount to the customer.</li>
+            <li>Go to "Billing" tab and sell the new item as a fresh bill.</li>
+          </ol>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1825,6 +1901,25 @@
       
       function getCustomers() { return load('sp_customers', []); }
       function saveCustomers(customers) { save('sp_customers', customers); }
+
+      /* NEW CODE: LOGGING HELPERS */
+      function getStockLogs() { return load('sp_stock_logs', []); }
+      function saveStockLogs(logs) { save('sp_stock_logs', logs); }
+
+      function logStockMovement(item, changeQty, type, reference) {
+        if (Number(changeQty) === 0) return;
+        const logs = getStockLogs();
+        logs.push({
+            id: Date.now() + Math.random(),
+            date: new Date().toISOString(),
+            itemName: item.name,
+            variant: item.variant || '',
+            changeQty: Number(changeQty),
+            type: type, // 'Sale', 'Purchase', 'Return', 'Initial', 'Adjustment'
+            reference: reference || ''
+        });
+        saveStockLogs(logs);
+      }
 
       function getNextBillNo() {
         const n = load('sp_nextBillNo', 1);
@@ -2135,9 +2230,17 @@
             return;
           }
 
-          if (editId) {
+         if (editId) {
             const index = inv.findIndex(i => String(i.id) === String(editId));
             if (index !== -1) {
+              // NEW: Log manual adjustment if stock changed
+              const oldStock = Number(inv[index].stock) || 0;
+              const newStock = Number(productData.stock);
+              const diff = newStock - oldStock;
+              if (diff !== 0) {
+                  logStockMovement(inv[index], diff, 'Adjustment', 'Manual Edit via Inventory');
+              }
+
               // Preserve last purchase date if not explicitly changed
               productData.lastPurchaseDate = productData.lastPurchaseDate || inv[index].lastPurchaseDate;
               inv[index] = Object.assign({}, inv[index], productData);
@@ -2145,7 +2248,13 @@
           } else {
             productData.id = Date.now();
             inv.push(productData);
+            
+            // NEW: Log initial stock
+            if (productData.stock > 0) {
+                logStockMovement(productData, productData.stock, 'Initial', 'New Product Created');
+            }
           }
+          
           saveInventory(inv);
           resetInventoryForm();
           displayInventory();
@@ -2374,6 +2483,7 @@
           product.buyPrice = rate; // Update buy price to the latest rate
           product.lastPurchaseDate = purchaseDate;
           product.supplierName = supplierName;
+          logStockMovement(product, quantity, 'Purchase', `Supplier: ${supplierName}`);
           saveInventory(inv);
 
           // 2. Save Purchase Record
@@ -2949,7 +3059,7 @@
           window.open(waUrl, '_blank');
 
           // ✅ Open THERMAL print view (same format as text, for screenshot/PDF)
-          printInvoice(sale, { autoPrint: false, layout: 'thermal' });
+          // printInvoice(sale, { autoPrint: false, layout: 'thermal' });
 
           closeWhatsappModal();
           closePrintModal();
@@ -3145,7 +3255,7 @@
           
           const discount = Number(billDiscountEl.value) || 0;
           const rawTotal = Math.max(0, subtotal + totalTax - discount);
-          const total = Math.round(rawTotal); // The rounding logic
+          const total = Math.round(rawTotal); 
           
           const customer = {
             name: (customerNameInput.value || '').trim(),
@@ -3155,6 +3265,9 @@
           // Save customer for auto-fill
           saveCustomer(customer.name, customer.phone);
 
+          // CORRECTION 1: Generate Bill Number BEFORE the loop
+          const newBillNo = getNextBillNo();
+
           const inv = getInventory();
           currentBillItems.forEach(it => {
             // 1. Reduce stock of the item sold
@@ -3162,6 +3275,9 @@
             if (p) {
               p.stock = (Number(p.stock) || 0) - (Number(it.stockReduced) || 0);
               if (p.stock < 0) p.stock = 0;
+              
+              // CORRECTION 2: Use 'newBillNo' variable
+              logStockMovement(p, -Number(it.stockReduced), 'Sale', `Bill #${newBillNo}`);
             }
             
             // 2. Reduce stock of the linked raw item
@@ -3170,20 +3286,23 @@
               if (rawP) {
                 rawP.stock = (Number(rawP.stock) || 0) - (Number(it.rawStockToReduce) || 0);
                 if (rawP.stock < 0) rawP.stock = 0;
+                
+                // CORRECTION 3: Use 'newBillNo' variable
+                logStockMovement(rawP, -Number(it.rawStockToReduce), 'Usage', `Used for ${p.name} (Bill #${newBillNo})`);
               }
             }
           });
           saveInventory(inv);
-          displayInventory(); // Refresh inventory list view
+          displayInventory(); 
 
           const sale = {
             id: Date.now(),
             date: new Date().toISOString(),
-            billNo: getNextBillNo(),
+            billNo: newBillNo, // CORRECTION 4: Assign the generated number
             customer,
-            items: currentBillItems.map(it => Object.assign({}, it)), // Save all item details
+            items: currentBillItems.map(it => Object.assign({}, it)),
             subtotal,
-            totalTax, // Save total tax
+            totalTax,
             discount,
             total
           };
@@ -3195,7 +3314,7 @@
           openPrintModal(sale);
           showToast("Sale Completed Successfully.");
           
-          populateProductSelectDropdown(); // NEW: Refresh stock in dropdown
+          populateProductSelectDropdown();
 
           // reset bill
           currentBillItems = [];
@@ -3333,9 +3452,80 @@
       
       if(labelPrintBtn) {
           labelPrintBtn.addEventListener('click', () => {
-              const content = document.getElementById('label-print-area').innerHTML;
-              const w = window.open('', '_blank', 'height=400,width=400');
-              w.document.write(`<html><head><title>Label</title></head><body style="text-align:center;">${content}</body></html>`);
+              // 1. Get Text Values
+              const name = document.getElementById('label-product-name').textContent;
+              const variant = document.getElementById('label-product-variant').textContent;
+              const price = document.getElementById('label-product-price').textContent;
+              
+              // 2. Convert QR Canvas to Image Data URL (Base64)
+              const canvas = document.getElementById('label-qr-canvas');
+              const dataUrl = canvas.toDataURL('image/png');
+              
+              // 3. Build HTML with specific width constraints
+              const html = `
+                <html>
+                <head>
+                  <title>Product Label</title>
+                  <style>
+                    /* Reset margins for the page */
+                    @page { size: auto; margin: 5mm; }
+                    
+                    body { 
+                      font-family: sans-serif; 
+                      padding: 20px; 
+                      text-align: center; /* Centers inline-block elements */
+                    }
+
+                    .label-box { 
+                      width: 60mm; /* Fixed width (approx 2.4 inches) */
+                      border: 2px solid black; 
+                      padding: 10px; 
+                      margin: 0 auto; /* Centers block elements */
+                      display: block;
+                      page-break-inside: avoid;
+                      border-radius: 8px;
+                    }
+                    
+                    h4 { 
+                      margin: 0 0 4px 0; 
+                      font-size: 12pt; 
+                      line-height: 1.2;
+                      word-wrap: break-word; 
+                    }
+                    
+                    .variant { 
+                      font-size: 10pt; 
+                      margin-bottom: 6px; 
+                      color: #333; 
+                    }
+                    
+                    img { 
+                      width: 40mm; /* Fixed QR size */
+                      height: 40mm; 
+                      display: block; 
+                      margin: 4px auto; 
+                    }
+                    
+                    .price { 
+                      font-weight: bold; 
+                      margin-top: 4px; 
+                      font-size: 14pt; 
+                    }
+                  </style>
+                </head>
+                <body>
+                  <div class="label-box">
+                    <h4>${escapeHtml(name)}</h4>
+                    <div class="variant">${escapeHtml(variant)}</div>
+                    <img src="${dataUrl}" alt="QR Code">
+                    <div class="price">${escapeHtml(price)}</div>
+                  </div>
+                </body>
+                </html>
+              `;
+
+              const w = window.open('', '_blank', 'height=500,width=500');
+              w.document.write(html);
               w.document.close();
               w.focus();
               setTimeout(() => {
@@ -3668,6 +3858,7 @@
             <td data-label="Total" style="font-weight:bold; color:var(--primary);">₹${fmt(sale.total)}</td>
             <td data-label="Actions" class="actions-cell">
               <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn-small" data-action="manage" data-id="${sale.id}" style="background:rgba(249,115,22,0.15); color:#f97316; border:1px solid rgba(249,115,22,0.4);">Manage</button>
                 <button class="btn-small" data-action="view" data-id="${sale.id}">View</button>
                 <button class="btn-small" data-action="print" data-id="${sale.id}">Print</button>
                 <button class="btn-small delete" data-action="delete" data-id="${sale.id}">Delete</button>
@@ -3687,6 +3878,12 @@
           const allSales = getSales();
           const sale = allSales.find(s => String(s.id) === String(id));
           if (!sale) return;
+
+          // NEW ACTION
+          if (action === 'manage') {
+            openManageBillModal(id);
+            return;
+          }
 
           if (action === 'print') {
             printInvoice(sale, { autoPrint: true, layout: 'thermal' });
@@ -4166,6 +4363,379 @@
           }, 300);
         });
       }
+
+      /* -------------------------------------------
+         NEW: RETURN & EXCHANGE LOGIC
+         ------------------------------------------- */
+      const manageBillModal = document.getElementById('manage-bill-modal');
+      const manageBillCloseBtn = document.getElementById('manage-bill-close-btn');
+      const mbItemsList = document.getElementById('mb-items-list');
+      let currentManagingBillId = null;
+
+      function openManageBillModal(billId) {
+        const sales = getSales();
+        const sale = sales.find(s => String(s.id) === String(billId));
+        if (!sale) return;
+        currentManagingBillId = billId;
+        
+        // Header Info
+        const custName = sale.customer && (sale.customer.name || sale.customer.phone) 
+            ? `${sale.customer.name || ''} ${sale.customer.phone || ''}` : 'Walk-in';
+        document.getElementById('mb-customer').textContent = custName;
+        document.getElementById('mb-date').textContent = new Date(sale.date).toLocaleString();
+        document.getElementById('manage-bill-title').textContent = `Manage Bill #${sale.billNo}`;
+        
+        renderManageBillItems(sale);
+        manageBillModal.classList.add('open');
+      }
+
+      function closeManageBillModal() {
+        manageBillModal.classList.remove('open');
+        currentManagingBillId = null;
+        applyAndRenderReports(); // Refresh main report table
+      }
+
+      if(manageBillCloseBtn) manageBillCloseBtn.addEventListener('click', closeManageBillModal);
+      if(manageBillModal) manageBillModal.querySelector('.modal-backdrop').addEventListener('click', closeManageBillModal);
+
+      function renderManageBillItems(sale) {
+        mbItemsList.innerHTML = '';
+        document.getElementById('mb-total').textContent = `₹${fmt(sale.total)}`;
+        
+        if(sale.items.length === 0) {
+           mbItemsList.innerHTML = '<tr><td colspan="4" class="text-xs muted">All items returned. Bill is empty.</td></tr>';
+           return;
+        }
+
+        sale.items.forEach((item, index) => {
+          const row = document.createElement('tr');
+          // Refund value = (Price + Tax) per unit
+          const taxPerUnit = (item.taxAmount || 0) / item.quantity;
+          const valPerUnit = (item.pricePerUnit || 0) + taxPerUnit;
+          
+          row.innerHTML = `
+            <td>
+              <div style="font-weight:600;">${escapeHtml(item.name)}</div>
+              <div class="text-xs muted">${escapeHtml(item.variant || '')}</div>
+            </td>
+            <td>${fmtQty(item.quantity)} ${escapeHtml(item.unit)}</td>
+            <td>₹${fmt(valPerUnit)} / unit</td>
+            <td>
+              <button class="btn-small delete" onclick="window.processReturnItem('${sale.id}', ${index})">
+                Return
+              </button>
+            </td>
+          `;
+          mbItemsList.appendChild(row);
+        });
+      }
+
+      // Expose to window so onclick HTML attribute can find it
+      window.processReturnItem = function(billId, itemIndex) {
+        const sales = getSales();
+        const saleIndex = sales.findIndex(s => String(s.id) === String(billId));
+        if (saleIndex === -1) return;
+        const sale = sales[saleIndex];
+        const item = sale.items[itemIndex];
+
+        const returnQtyStr = prompt(`Return quantity for ${item.name}?\n(Max: ${item.quantity})`, item.quantity);
+        if (returnQtyStr === null) return;
+        const returnQty = Number(returnQtyStr);
+
+        if (isNaN(returnQty) || returnQty <= 0 || returnQty > item.quantity) {
+          alert("Invalid quantity.");
+          return;
+        }
+
+        // Calculate Refund
+        const taxPerUnit = (item.taxAmount || 0) / item.quantity;
+        const refundAmount = returnQty * (item.pricePerUnit + taxPerUnit);
+
+        if(!confirm(`Confirm Return:\n\nItem: ${item.name}\nQty: ${returnQty}\nRefund To Customer: ₹${fmt(refundAmount)}\n\nThis will restore stock to inventory.`)) return;
+
+        // 1. RESTORE INVENTORY
+        const inv = getInventory();
+        // Main Product
+        const product = inv.find(p => String(p.id) === String(item.productId));
+        if (product) {
+          product.stock = (Number(product.stock) || 0) + returnQty;
+          logStockMovement(product, returnQty, 'Return', `Return from Bill #${sale.billNo}`);
+        }
+        // Linked Raw Product (if any)
+        if (item.linksToProductId && item.rawStockToReduce) {
+          const rawProduct = inv.find(p => String(p.id) === String(item.linksToProductId));
+          if (rawProduct) {
+             const conversion = item.rawStockToReduce / item.quantity;
+             rawProduct.stock = (Number(rawProduct.stock) || 0) + (returnQty * conversion);
+          }
+        }
+        saveInventory(inv);
+
+        // 2. UPDATE BILL
+        item.quantity -= returnQty;
+        // Recalculate line totals
+        item.totalPrice = item.quantity * item.pricePerUnit;
+        item.taxAmount = (item.totalPrice * item.taxPercent) / 100;
+        // Update raw stock tracking
+        if(item.rawStockToReduce) {
+           const conversion = item.rawStockToReduce / (item.quantity + returnQty);
+           item.rawStockToReduce = item.quantity * conversion;
+        }
+        item.stockReduced = item.quantity;
+
+        // Remove item if 0
+        if (item.quantity <= 0) {
+          sale.items.splice(itemIndex, 1);
+        }
+
+        // 3. RECALCULATE BILL TOTALS
+        let newSub = 0; 
+        let newTax = 0;
+        sale.items.forEach(it => { newSub += it.totalPrice; newTax += it.taxAmount; });
+        sale.subtotal = newSub;
+        sale.totalTax = newTax;
+        
+        const gross = newSub + newTax;
+        if(sale.discount > gross) sale.discount = gross; // Cap discount
+        sale.total = Math.round(gross - sale.discount);
+
+        saveSales(sales);
+        
+        // Refresh UI
+        renderManageBillItems(sale);
+        showToast(`Returned. Refund: ₹${fmt(refundAmount)}`);
+        
+        // Refresh Inventory Views
+        displayInventory();
+        renderProductGrid(); 
+      };
+
+      /* -------------------------------------------
+         NEW: INVENTORY EXPORT & HISTORY REPORT LOGIC
+         ------------------------------------------- */
+      
+      // 1. Inventory Export Handlers
+      const invExportCsvBtn = document.getElementById('inv-export-csv-btn');
+      const invPrintBtn = document.getElementById('inv-print-btn');
+
+      if(invExportCsvBtn) {
+          invExportCsvBtn.addEventListener('click', () => {
+              const inv = getInventory();
+              const rows = inv.map(i => ({
+                  Name: i.name,
+                  Variant: i.variant,
+                  Category: i.category,
+                  Stock: i.stock,
+                  Unit: i.unit,
+                  BuyPrice: i.buyPrice,
+                  SellPrice: i.pricePerUnit,
+                  Value: (i.stock * i.pricePerUnit).toFixed(2),
+                  Supplier: i.supplierName
+              }));
+              
+              const columns = [
+                  { key: 'Name', label: 'Product Name' },
+                  { key: 'Variant', label: 'Variant' },
+                  { key: 'Category', label: 'Category' },
+                  { key: 'Stock', label: 'Stock Qty' },
+                  { key: 'Unit', label: 'Unit' },
+                  { key: 'BuyPrice', label: 'Buy Price' },
+                  { key: 'SellPrice', label: 'Sell Price' },
+                  { key: 'Value', label: 'Stock Value' },
+                  { key: 'Supplier', label: 'Supplier' }
+              ];
+              exportCSV(rows, columns, 'Inventory_List.csv');
+          });
+      }
+
+      if(invPrintBtn) {
+          invPrintBtn.addEventListener('click', () => {
+              const inv = getInventory();
+              const shop = getShopSettings();
+              const dateStr = new Date().toLocaleString();
+              
+              let totalVal = 0;
+              let rowsHtml = '';
+              
+              // Sort by Category then Name
+              inv.sort((a,b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
+
+              inv.forEach(item => {
+                  const stock = Number(item.stock) || 0;
+                  const price = Number(item.pricePerUnit) || 0;
+                  const buy = Number(item.buyPrice) || 0;
+                  const val = stock * price;
+                  totalVal += val;
+                  
+                  rowsHtml += `
+                    <tr>
+                      <td>
+                        <strong>${escapeHtml(item.name)}</strong> 
+                        ${item.variant ? `<span class="muted">(${escapeHtml(item.variant)})</span>` : ''}
+                      </td>
+                      <td>${escapeHtml(item.category || '-')}</td>
+                      <td>${fmtQty(stock)} ${escapeHtml(item.unit || '')}</td>
+                      <td>₹${fmt(buy)}</td>
+                      <td>₹${fmt(price)}</td>
+                      <td style="text-align:right;">₹${fmt(val)}</td>
+                    </tr>
+                  `;
+              });
+              
+              // Summary Row
+              rowsHtml += `
+                <tr style="font-weight:bold; border-top: 2px solid #333; background:#f9fafb;">
+                  <td colspan="5" style="text-align:right; padding-right:12px;">Total Inventory Value (Sell Price)</td>
+                  <td style="text-align:right;">₹${fmt(totalVal)}</td>
+                </tr>
+              `;
+
+              const html = `
+                <!doctype html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>Inventory Report</title>
+                  <style>
+                    body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; padding: 20px; font-size: 13px; color: #111; }
+                    h2,h3 { margin: 0 0 4px 0; }
+                    .muted { color: #6b7280; font-size: 12px; }
+                    
+                    /* Table Styles matching Sales Report */
+                    table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+                    th, td { border-bottom: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; vertical-align: top; }
+                    th { background: #f3f4f6; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; color: #374151; }
+                    tr:nth-child(even) { background-color: #f9fafb; }
+                    
+                    .header-section { text-align:center; margin-bottom: 20px; }
+                    .report-meta { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #111; padding-bottom:8px; margin-bottom:10px; }
+                  </style>
+                </head>
+                <body>
+                  <div class="header-section">
+                    <h2 style="font-size:18px;">${escapeHtml(shop.name || 'Shop')}</h2>
+                    <div class="muted">${escapeHtml(shop.address || '')}</div>
+                    ${shop.gst ? `<div class="muted">GST: ${escapeHtml(shop.gst)}</div>` : ''}
+                  </div>
+                  
+                  <div class="report-meta">
+                    <h3 style="margin:0; font-size:16px;">Inventory Report</h3>
+                    <div class="muted">Generated: ${dateStr}</div>
+                  </div>
+                  
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width:30%">Product</th>
+                        <th>Category</th>
+                        <th>Stock Level</th>
+                        <th>Buy Price</th>
+                        <th>Sell Price</th>
+                        <th style="text-align:right;">Total Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${rowsHtml}
+                    </tbody>
+                  </table>
+                  
+                  <div style="margin-top:20px; font-size:11px; color:#666; text-align:center;">
+                    Page 1 of 1 &bull; Printed from Billing App
+                  </div>
+                </body>
+                </html>
+              `;
+              
+              const w = window.open('', '_blank', 'height=800,width=1000');
+              if (!w) { alert('Popup blocked. Please allow popups to print.'); return; }
+              w.document.open();
+              w.document.write(html);
+              w.document.close();
+              w.focus();
+              // Browser print dialog handles "Save as PDF"
+              setTimeout(() => { w.print(); w.close(); }, 500);
+          });
+      }
+
+      // 2. Render Stock History Report
+      const stockHistoryList = document.getElementById('stock-history-list');
+      const exportHistoryBtn = document.getElementById('export-history-btn');
+
+      function getFilteredLogs() {
+         const logs = getStockLogs();
+         const sdVal = document.getElementById('report-start-date').value;
+         const edVal = document.getElementById('report-end-date').value;
+         const itemSelect = document.getElementById('report-item-select').value;
+
+         return logs.filter(log => {
+             const ymd = toLocalYMD(log.date);
+             if (sdVal && ymd < sdVal) return false;
+             if (edVal && ymd > edVal) return false;
+             if (itemSelect && log.itemName !== itemSelect) return false;
+             return true;
+         });
+      }
+
+      function renderStockHistory(filteredLogs) {
+          if (!stockHistoryList) return;
+          stockHistoryList.innerHTML = '';
+          
+          if (filteredLogs.length === 0) {
+              stockHistoryList.innerHTML = '<tr><td colspan="5" class="muted text-xs">No history found in this range.</td></tr>';
+              return;
+          }
+
+          filteredLogs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+          filteredLogs.forEach(log => {
+              const tr = document.createElement('tr');
+              let color = '#e5e7eb';
+              let prefix = '';
+              if (log.changeQty > 0) { color = '#4ade80'; prefix = '+'; } 
+              else if (log.changeQty < 0) { color = '#f87171'; } 
+
+              tr.innerHTML = `
+                  <td>${new Date(log.date).toLocaleString()}</td>
+                  <td>
+                    <div>${escapeHtml(log.itemName)}</div>
+                    <div class="text-xs muted">${escapeHtml(log.variant)}</div>
+                  </td>
+                  <td><span class="badge-pill" style="background:rgba(255,255,255,0.1);">${escapeHtml(log.type)}</span></td>
+                  <td style="color:${color}; font-weight:bold;">${prefix}${fmtQty(log.changeQty)}</td>
+                  <td class="text-xs muted">${escapeHtml(log.reference)}</td>
+              `;
+              stockHistoryList.appendChild(tr);
+          });
+      }
+
+      // Hook into existing report generation
+      const originalApply = applyAndRenderReports; 
+      applyAndRenderReports = function() {
+          originalApply(); // Run existing logic
+          const filteredLogs = getFilteredLogs();
+          renderStockHistory(filteredLogs);
+      };
+
+      if(exportHistoryBtn) {
+          exportHistoryBtn.addEventListener('click', () => {
+              const logs = getFilteredLogs();
+              const rows = logs.map(l => ({
+                  Date: new Date(l.date).toLocaleString(),
+                  Item: l.itemName,
+                  Variant: l.variant,
+                  Type: l.type,
+                  Change: l.changeQty,
+                  Reference: l.reference
+              }));
+              const cols = [
+                  {key:'Date', label:'Date'}, {key:'Item', label:'Item'}, 
+                  {key:'Variant', label:'Variant'}, {key:'Type', label:'Type'}, 
+                  {key:'Change', label:'Qty Change'}, {key:'Reference', label:'Reference'}
+              ];
+              exportCSV(rows, cols, 'Stock_History.csv');
+          });
+      }
+
 
       /* -------------------------------------------
          INITIALIZATION
