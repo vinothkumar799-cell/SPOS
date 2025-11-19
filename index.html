@@ -3377,19 +3377,22 @@
       if(scannerModal) scannerModal.querySelector('.modal-backdrop').addEventListener('click', closeScannerModal);
       
       function startScanner() {
-          // Destroy previous instance if exists to prevent errors
+          // 1. Clean up any existing scanner instance to prevent errors
           if(html5QrcodeScanner) {
-            try { html5QrcodeScanner.clear(); } catch(e){}
+            try { html5QrcodeScanner.clear(); } catch(e) {}
           }
 
+          // 2. Initialize with Rear Camera settings
           html5QrcodeScanner = new Html5QrcodeScanner(
               "scanner-preview",
               { 
                   fps: 10, 
                   qrbox: {width: 250, height: 250},
-                  aspectRatio: 1.0, // Crucial for Mobile Portrait mode
-                  rememberLastUsedCamera: true,
-                  supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA] 
+                  aspectRatio: 1.0, // Important for mobile portrait view
+                  rememberLastUsedCamera: false, // Set to FALSE to force "environment" preference every time
+                  videoConstraints: {
+                      facingMode: "environment" // This requests the Rear Camera
+                  }
               },
               /* verbose= */ false);
           
